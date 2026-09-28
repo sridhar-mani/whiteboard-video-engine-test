@@ -62,7 +62,7 @@ def auth_configured() -> bool:
         os.getenv("MCP_AUTH_ISSUER"),
         os.getenv("MCP_AUTH_AUDIENCE"),
         os.getenv("MCP_AUTH_JWKS_URL"),
-        os.getenv("MCP_PUBLIC_URL"),
+        os.getenv("MCP_PUBLIC_URL") or os.getenv("RENDER_EXTERNAL_URL"),
     )
     return all(value and value.strip() for value in required)
 
@@ -74,7 +74,16 @@ def build_auth_settings() -> tuple[JWTTokenVerifier, AuthSettings] | None:
     issuer = os.environ["MCP_AUTH_ISSUER"].strip().rstrip("/")
     audience = os.environ["MCP_AUTH_AUDIENCE"].strip()
     jwks_url = os.environ["MCP_AUTH_JWKS_URL"].strip()
-    public_url = os.environ["MCP_PUBLIC_URL"].strip().rstrip("/")
+    public_url = (
+        os.getenv("MCP_PUBLIC_URL")
+        or os.getenv("RENDER_EXTERNAL_URL")
+        or ""
+    ).strip().rstrip("/")
+    if not public_url:
+        raise RuntimeError(
+            "MCP public URL is missing. Set MCP_PUBLIC_URL or deploy on Render."
+        )
+    public_url = f"{public_url}/mcp" if not public_url.endswith("/mcp") else public_url
     required_scopes = [
         item.strip()
         for item in os.getenv("MCP_AUTH_REQUIRED_SCOPES", "mcp:write").split()
