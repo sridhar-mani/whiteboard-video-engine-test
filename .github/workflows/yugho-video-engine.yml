@@ -61,12 +61,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
-          python -m pip install -r mcp_server/requirements.txt
+          python -m pip install -r src/yugho_video/mcp_server/requirements.txt
 
       - name: Install YouTube dependencies when publishing
         if: ${{ inputs.publish == true }}
         shell: bash
-        run: python -m pip install -r video_platform/requirements.txt
+        run: python -m pip install -r src/yugho_video/video_platform/requirements.txt
 
       - name: Run unit tests
         shell: bash
@@ -82,7 +82,7 @@ jobs:
           python - "$PROJECT_PATH" <<'PY'
           import sys
           from pathlib import Path
-          from mcp_server.models import VideoProject
+          from yugho_video.mcp_server.models import VideoProject
 
           path = Path(sys.argv[1])
           project = VideoProject.model_validate_json(
@@ -104,7 +104,7 @@ jobs:
 
           /usr/bin/time -f "render_seconds=%e\nmax_rss_kb=%M" \
             -o out/yugho/render-resource-usage.txt \
-            python -m video_platform.render_project \
+            python -m yugho_video.video_platform.render_project \
               --project "$PROJECT_PATH" \
               --output-dir out/yugho
 
@@ -172,7 +172,7 @@ jobs:
 
           test -f out/yugho/captions.srt || true
 
-          python -m video_platform.youtube \
+          python -m yugho_video.video_platform.youtube \
             --project "$PROJECT_PATH" \
             --video out/yugho/final.mp4 \
             --thumbnail out/yugho/thumbnail.jpg \
