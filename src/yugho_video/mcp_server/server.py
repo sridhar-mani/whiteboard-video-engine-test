@@ -3,6 +3,11 @@ from __future__ import annotations
 import os
 from urllib.parse import urlparse
 
+import uvicorn
+from starlette.applications import Starlette
+from starlette.responses import JSONResponse
+from starlette.routing import Mount, Route
+
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 
@@ -48,6 +53,30 @@ if auth_pair is not None:
     server_kwargs["auth"] = auth_settings
 
 mcp = MCPServer(settings.mcp_name, **server_kwargs)
+
+
+async def _health(_request):
+    return JSONResponse({"status": "ok", "service": settings.mcp_name})
+
+
+def build_http_app() -> Starlette:
+    return Starlette(
+        routes=[
+            Route("/health", endpoint=_health, methods=["GET"]),
+            Mount(
+                "/",
+                app=mcp.streamable_http_app(
+                    json_response=True,
+                    stateless_http=True,
+                    transport_security=_transport_security(),
+                    host="0.0.0.0",
+                ),
+            ),
+        ],
+    )
+
+
+app = build_http_app()
 
 
 @mcp.tool()
@@ -177,13 +206,11 @@ def _transport_security() -> TransportSecuritySettings | None:
 
 def main() -> None:
     port = int(os.getenv("PORT", "10000"))
-    mcp.run(
-        transport="streamable-http",
+    uvicorn.run(
+        app,
         host="0.0.0.0",
         port=port,
-        stateless_http=True,
-        json_response=True,
-        transport_security=_transport_security(),
+        log_level=os.getenv("LOG_LEVEL", "info").lower(),
     )
 
 
