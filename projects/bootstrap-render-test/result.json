@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "state": "failed",
+  "project_id": "bootstrap-render-test",
+  "title": "YUGHO Whiteboard Bootstrap Test",
+  "run_id": 36416235093,
+  "run_url": "https://github.com/sridhar-mani/whiteboard-video-engine-test/actions/runs/36416235093",
+  "profile": "smoke",
+  "segment_id": null,
+  "requested_publish": false,
+  "youtube": null,
+  "render_manifest": {}
+}
