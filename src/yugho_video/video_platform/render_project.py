@@ -16,6 +16,52 @@ from yugho_video.video_platform.captions import write_srt
 from yugho_video.video_platform.renderers import get_renderer
 
 
+RENDER_PROFILES: dict[str, dict[str, object]] = {
+    "smoke": {
+        "width": 960,
+        "height": 540,
+        "fps": 12,
+        "crf": 30,
+        "preset": "veryfast",
+    },
+    "preview": {
+        "width": 1920,
+        "height": 1080,
+        "fps": 24,
+        "crf": 23,
+        "preset": "fast",
+    },
+    "final": {
+        "width": 1920,
+        "height": 1080,
+        "fps": 24,
+        "crf": 18,
+        "preset": "medium",
+    },
+}
+
+
+def get_render_profile(profile: str) -> dict[str, object]:
+    try:
+        return dict(RENDER_PROFILES[profile])
+    except KeyError as exc:
+        raise ValueError(f"Unknown render profile: {profile}") from exc
+
+
+def apply_render_profile(
+    project: VideoProject,
+    profile: str,
+) -> dict[str, object]:
+    settings = get_render_profile(profile)
+    for segment in project.segments:
+        config = dict(segment.config)
+        config["width"] = int(settings["width"])
+        config["height"] = int(settings["height"])
+        config["fps"] = int(settings["fps"])
+        segment.config = config
+    return settings
+
+
 def _concat_file_line(path: Path) -> str:
     escaped = path.as_posix().replace("'", "'\\''")
     return f"file '{escaped}'\n"
@@ -34,6 +80,7 @@ def render_project(
     project_path: Path,
     output_dir: Path,
     segment_id: str | None = None,
+    profile: str = "preview",
 ) -> dict[str, object]:
     repo_root = Path.cwd().resolve()
     project_path = project_path.resolve()
@@ -52,6 +99,8 @@ def render_project(
                 f"Segment {segment_id!r} was not found in project {project.project_id!r}"
             )
         project.segments = selected
+
+    profile_settings = apply_render_profile(project, profile)
 
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -111,8 +160,8 @@ def render_project(
             "-safe", "0",
             "-i", str(concat_list),
             "-c:v", "libx264",
-            "-preset", "medium",
-            "-crf", "20",
+            "-preset", str(profile_settings["preset"]),
+            "-crf", str(profile_settings["crf"]),
             "-pix_fmt", "yuv420p",
             "-c:a", "aac",
             "-b:a", "160k",
@@ -148,6 +197,14 @@ def render_project(
         "captions": str(captions_path) if captions_created else None,
         "audio_provider": project.audio.provider,
         "voice": project.audio.voice,
+        "profile": profile,
+        "output": {
+            "width": profile_settings["width"],
+            "height": profile_settings["height"],
+            "fps": profile_settings["fps"],
+            "crf": profile_settings["crf"],
+            "preset": profile_settings["preset"],
+        },
     }
     (output_dir / "project-manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
@@ -161,6 +218,7 @@ def render_project(
         "segment_id": segment_id,
         "captions": captions_created,
         "audio_provider": project.audio.provider,
+        "profile": profile,
     }
 
 
@@ -171,12 +229,18 @@ def main() -> int:
     parser.add_argument("--project", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--segment-id")
+    parser.add_argument(
+        "--profile",
+        choices=tuple(RENDER_PROFILES),
+        default="preview",
+    )
     args = parser.parse_args()
 
     result = render_project(
         args.project,
         args.output_dir,
         segment_id=args.segment_id,
+        profile=args.profile,
     )
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
