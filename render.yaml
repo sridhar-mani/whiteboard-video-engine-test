@@ -3,6 +3,7 @@ services:
     name: yugho-video-mcp
     runtime: python
     plan: free
+    healthCheckPath: /health
     buildCommand: pip install -e '.[dev]'
     startCommand: yugho-video-mcp
     autoDeploy: true
