@@ -1,7 +1,7 @@
-from yugho_video.mcp_server.models import SegmentSpec, VideoProject
+from yugho_video.mcp_server.models import SegmentSpec, SpeakerTurn, VideoProject
 
 
-def test_yugho_project_supports_renderer_selection() -> None:
+def test_yugho_project_supports_renderer_selection_and_dialogue() -> None:
     project = VideoProject(
         project_id="demo-project",
         title="Demo",
@@ -14,18 +14,33 @@ def test_yugho_project_supports_renderer_selection() -> None:
                 duration_sec=5,
             ),
             SegmentSpec(
-                id="diagram",
-                kind="diagram",
-                renderer="motion-canvas",
+                id="dialogue",
+                kind="dialogue",
+                renderer="whiteboard",
                 duration_sec=8,
+                dialogue=[
+                    SpeakerTurn(
+                        speaker="host",
+                        text="What happened?",
+                        voice="en-US-AriaNeural",
+                        rate="-5%",
+                    ),
+                    SpeakerTurn(
+                        speaker="guest",
+                        text="The system changed.",
+                        voice="en-US-GuyNeural",
+                        pitch="+4Hz",
+                    ),
+                ],
             ),
         ],
     )
 
     assert [segment.renderer for segment in project.segments] == [
         "whiteboard",
-        "motion-canvas",
+        "whiteboard",
     ]
+    assert project.segments[1].dialogue[1].pitch == "+4Hz"
 
 
 def test_tags_are_normalized_and_deduplicated() -> None:
