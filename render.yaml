@@ -3,13 +3,14 @@ services:
     name: yugho-video-mcp
     runtime: python
     plan: free
-    buildCommand: pip install -r mcp_server/requirements.txt
-    startCommand: python -m mcp_server.server
+    buildCommand: pip install -e . && pip install -r src/yugho_video/mcp_server/requirements.txt
+    startCommand: python -m yugho_video.mcp_server.server
     autoDeploy: true
     buildFilter:
       paths:
-        - mcp_server/**
-        - video_platform/models.py
+        - src/yugho_video/**
+        - src/whiteboard_skill/**
+        - pyproject.toml
         - render.yaml
     envVars:
       - key: PYTHON_VERSION
