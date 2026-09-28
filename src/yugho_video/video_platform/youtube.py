@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 from google.oauth2.credentials import Credentials
@@ -38,12 +40,42 @@ def _credentials() -> Credentials:
     )
 
 
+def _validate_publish_at(value: str | None) -> None:
+    if not value:
+        return
+
+    normalized = value.replace("Z", "+00:00")
+    try:
+        when = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise ValueError(
+            "publish_at must be an ISO-8601 timestamp, e.g. 2026-10-03T13:30:00Z"
+        ) from exc
+
+    if when.tzinfo is None:
+        raise ValueError("publish_at must include a timezone")
+    if when.astimezone(timezone.utc) <= datetime.now(timezone.utc):
+        raise ValueError("publish_at must be in the future")
+
+
 def upload_project(
     project: VideoProject,
     video_path: Path,
     thumbnail_path: Path | None,
     captions_path: Path | None,
 ) -> dict[str, str | bool]:
+    if not project.publish.enabled:
+        raise ValueError("Project publish.enabled must be true for YouTube upload")
+    if not video_path.is_file() or video_path.stat().st_size == 0:
+        raise FileNotFoundError(video_path)
+
+    if project.publish.publish_at:
+        if project.publish.privacy_status != "private":
+            raise ValueError(
+                "publish_at requires privacy_status='private'"
+            )
+        _validate_publish_at(project.publish.publish_at)
+
     service = build(
         "youtube",
         "v3",
@@ -56,8 +88,6 @@ def upload_project(
     }
 
     if project.publish.publish_at:
-        if project.publish.privacy_status != "private":
-            raise ValueError("publish_at requires privacy_status='private'")
         status["publishAt"] = project.publish.publish_at
 
     body = {
@@ -99,7 +129,8 @@ def upload_project(
             ),
         ).execute()
 
-    if captions_path and captions_path.exists():
+    captions_uploaded = False
+    if captions_path and captions_path.exists() and captions_path.stat().st_size:
         service.captions().insert(
             part="snippet",
             body={
@@ -115,11 +146,17 @@ def upload_project(
                 mimetype="application/x-subrip",
             ),
         ).execute()
+        captions_uploaded = True
 
     return {
         "video_id": video_id,
         "url": f"https://www.youtube.com/watch?v={video_id}",
         "scheduled": bool(project.publish.publish_at),
+        "privacy_status": project.publish.privacy_status,
+        "thumbnail_uploaded": bool(
+            thumbnail_path and thumbnail_path.exists()
+        ),
+        "captions_uploaded": captions_uploaded,
     }
 
 
@@ -140,7 +177,7 @@ def main() -> int:
         args.thumbnail,
         args.captions,
     )
-    print(result)
+    print(json.dumps(result, indent=2))
     return 0
 
 
