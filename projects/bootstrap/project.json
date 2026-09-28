@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.0",
+  "project_id": "bootstrap-render-test",
+  "title": "YUGHO Whiteboard Bootstrap Test",
+  "topic": "Renderer and modular project pipeline smoke test",
+  "description": "Internal test project for the YUGHO modular video engine.",
+  "tags": ["YUGHO", "whiteboard", "test"],
+  "segments": [
+    {
+      "id": "bootstrap-scene",
+      "kind": "whiteboard_explanation",
+      "renderer": "whiteboard",
+      "duration_sec": 8,
+      "narration": "This is a bootstrap render for the YUGHO video engine.",
+      "input_path": "tests/fixtures/apple.svg",
+      "config": {
+        "fps": 24,
+        "width": 1920,
+        "height": 1080,
+        "hand": "asian",
+        "animation_preset": "classic",
+        "stroke_detail": "rich",
+        "line_reveal": "stroke",
+        "tail_color": 1.5,
+        "color_fill": "contour-wipe",
+        "block_fill_style": "crayon",
+        "color_fill_scope": "block",
+        "line_thickness": 0
+      }
+    }
+  ],
+  "publish": {
+    "enabled": false,
+    "privacy_status": "private",
+    "category_id": "27",
+    "language": "en"
+  }
+}
