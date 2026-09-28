@@ -137,7 +137,7 @@ def render_project(
         mixed.rename(final_path)
 
     captions_path = output_dir / "captions.srt"
-    captions_created = write_srt(project, captions_path)
+    captions_created = write_srt(project, captions_path, timing_dir=audio_dir)
 
     manifest = {
         "project_id": project.project_id,
