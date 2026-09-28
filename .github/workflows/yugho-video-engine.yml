@@ -19,6 +19,11 @@ on:
           - smoke
           - preview
           - final
+      segment_id:
+        description: Optional single segment ID for a preview render
+        required: false
+        default: ""
+        type: string
       publish:
         description: Upload the completed video to YouTube using repository secrets
         required: true
@@ -26,7 +31,7 @@ on:
         type: boolean
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: yugho-video-project-${{ inputs.project_path }}
@@ -56,17 +61,11 @@ jobs:
           ffmpeg -version | head -n 1
           ffprobe -version | head -n 1
 
-      - name: Install renderer, MCP schemas, and test dependencies
+      - name: Install YUGHO platform
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
-          python -m pip install -r src/yugho_video/mcp_server/requirements.txt
-
-      - name: Install YouTube dependencies when publishing
-        if: ${{ inputs.publish == true }}
-        shell: bash
-        run: python -m pip install -r src/yugho_video/video_platform/requirements.txt
+          python -m pip install -e ".[dev,youtube,tts]"
 
       - name: Run unit tests
         shell: bash
@@ -76,37 +75,57 @@ jobs:
         shell: bash
         env:
           PROJECT_PATH: ${{ inputs.project_path }}
+          SEGMENT_ID: ${{ inputs.segment_id }}
         run: |
           set -euo pipefail
+          case "$PROJECT_PATH" in
+            projects/*.json) ;;
+            *) echo "project_path must point inside projects/" >&2; exit 1 ;;
+          esac
+
           test -f "$PROJECT_PATH"
-          python - "$PROJECT_PATH" <<'PY'
+
+          python - "$PROJECT_PATH" "$SEGMENT_ID" <<'PY'
           import sys
           from pathlib import Path
           from yugho_video.mcp_server.models import VideoProject
 
           path = Path(sys.argv[1])
+          requested_segment = sys.argv[2].strip()
           project = VideoProject.model_validate_json(
               path.read_text(encoding="utf-8")
           )
+
+          if requested_segment and requested_segment not in {
+              segment.id for segment in project.segments
+          }:
+              raise SystemExit(
+                  f"segment_id {requested_segment!r} is not in project"
+              )
+
           print(f"project_id={project.project_id}")
           print(f"segments={len(project.segments)}")
           print(f"title={project.title}")
+          print(f"audio_provider={project.audio.provider}")
           PY
 
-      - name: Render project segments and compose master
+      - name: Render project or selected segment
         shell: bash
         env:
           PROJECT_PATH: ${{ inputs.project_path }}
+          SEGMENT_ID: ${{ inputs.segment_id }}
         run: |
           set -euo pipefail
           rm -rf out/yugho
           mkdir -p out/yugho
 
-          /usr/bin/time -f "render_seconds=%e\nmax_rss_kb=%M" \
-            -o out/yugho/render-resource-usage.txt \
-            python -m yugho_video.video_platform.render_project \
-              --project "$PROJECT_PATH" \
-              --output-dir out/yugho
+          if [ -n "$SEGMENT_ID" ]; then
+            RENDER_ARGS=(--segment-id "$SEGMENT_ID")
+          else
+            RENDER_ARGS=()
+          fi
+
+          /usr/bin/time -f "render_seconds=%e\nmax_rss_kb=%M"             -o out/yugho/render-resource-usage.txt             python -m yugho_video.video_platform.render_project               --project "$PROJECT_PATH"               --output-dir out/yugho               "${RENDER_ARGS[@]}"
 
           test -s out/yugho/final.mp4
 
@@ -115,12 +134,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          ffprobe -v error \
-            -select_streams v:0 \
-            -show_entries stream=codec_name,width,height,r_frame_rate \
-            -show_entries format=duration,size \
-            -of json \
-            out/yugho/final.mp4 > out/yugho/video-metadata.json
+          ffprobe -v error             -select_streams v:0             -show_entries stream=codec_name,width,height,r_frame_rate             -show_entries format=duration,size             -of json             out/yugho/final.mp4 > out/yugho/video-metadata.json
 
           python - <<'PY'
           import json
@@ -152,15 +166,11 @@ jobs:
       - name: Generate thumbnail
         shell: bash
         run: |
-          ffmpeg -hide_banner -loglevel error -y \
-            -ss 1 \
-            -i out/yugho/final.mp4 \
-            -frames:v 1 \
-            -q:v 2 \
-            out/yugho/thumbnail.jpg
+          ffmpeg -hide_banner -loglevel error -y             -ss 1             -i out/yugho/final.mp4             -frames:v 1             -q:v 2             out/yugho/thumbnail.jpg
+          test -s out/yugho/thumbnail.jpg
 
       - name: Publish to YouTube
-        if: ${{ inputs.publish == true }}
+        if: ${{ inputs.publish == true && inputs.segment_id == '' }}
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
@@ -169,17 +179,90 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python -m yugho_video.video_platform.youtube             --project "$PROJECT_PATH"             --video out/yugho/final.mp4             --thumbnail out/yugho/thumbnail.jpg             --captions out/yugho/captions.srt             > out/yugho/youtube-result.json
+          cat out/yugho/youtube-result.json
 
-          test -f out/yugho/captions.srt || true
+      - name: Write durable project result
+        if: always()
+        shell: bash
+        env:
+          PROJECT_PATH: ${{ inputs.project_path }}
+          SEGMENT_ID: ${{ inputs.segment_id }}
+          PROFILE: ${{ inputs.profile }}
+          REQUESTED_PUBLISH: ${{ inputs.publish }}
+          JOB_STATUS: ${{ job.status }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
 
-          python -m yugho_video.video_platform.youtube \
-            --project "$PROJECT_PATH" \
-            --video out/yugho/final.mp4 \
-            --thumbnail out/yugho/thumbnail.jpg \
-            --captions out/yugho/captions.srt \
-            | tee out/yugho/youtube-result.txt
+          mkdir -p out/yugho
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          project_path = os.environ["PROJECT_PATH"]
+          project_file = Path(project_path)
+          project = json.loads(project_file.read_text(encoding="utf-8"))
+
+          youtube = None
+          result_file = Path("out/yugho/youtube-result.json")
+          if result_file.exists():
+              try:
+                  youtube = json.loads(result_file.read_text(encoding="utf-8"))
+              except json.JSONDecodeError:
+                  youtube = None
+
+          manifest = {}
+          manifest_file = Path("out/yugho/project-manifest.json")
+          if manifest_file.exists():
+              try:
+                  manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+              except json.JSONDecodeError:
+                  manifest = {}
+
+          state = "succeeded"
+          if os.environ["JOB_STATUS"] != "success":
+              state = "failed"
+
+          result = {
+              "schema_version": "1.0",
+              "state": state,
+              "project_id": project["project_id"],
+              "title": project["title"],
+              "run_id": int(os.environ["RUN_ID"]),
+              "run_url": os.environ["RUN_URL"],
+              "profile": os.environ["PROFILE"],
+              "segment_id": os.environ["SEGMENT_ID"] or None,
+              "requested_publish": os.environ["REQUESTED_PUBLISH"] == "true",
+              "youtube": youtube,
+              "render_manifest": manifest,
+          }
+
+          output = Path("out/yugho/result.json")
+          output.write_text(
+              json.dumps(result, indent=2, ensure_ascii=False) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+          PROJECT_ID="$(python -c 'import json; print(json.load(open("'"$PROJECT_PATH"'"))["project_id"])')"
+          RESULT_PATH="projects/$PROJECT_ID/result.json"
+
+          mkdir -p "$(dirname "$RESULT_PATH")"
+          cp out/yugho/result.json "$RESULT_PATH"
+
+          git config user.name "yugho-video-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$RESULT_PATH"
+          git diff --cached --quiet || git commit -m "video: record render result for $PROJECT_ID"
+          git push
 
       - name: Upload workflow artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: yugho-project-${{ github.run_id }}
@@ -188,10 +271,12 @@ jobs:
           retention-days: 3
 
       - name: Job summary
+        if: always()
         shell: bash
         env:
           PROJECT_PATH: ${{ inputs.project_path }}
           PROFILE: ${{ inputs.profile }}
+          SEGMENT_ID: ${{ inputs.segment_id }}
           PUBLISH: ${{ inputs.publish }}
         run: |
           {
@@ -199,10 +284,11 @@ jobs:
             echo ""
             echo "| Parameter | Value |"
             echo "|---|---|"
-            echo "| Project | \`$PROJECT_PATH\` |"
+            echo "| Project | `$PROJECT_PATH` |"
             echo "| Profile | $PROFILE |"
+            echo "| Segment | ${SEGMENT_ID:-full project} |"
             echo "| Publish | $PUBLISH |"
             echo "| Output | final.mp4 |"
             echo ""
-            echo "The render, thumbnail, captions, metadata, and resource report are attached as the workflow artifact."
+            echo "The final video, thumbnail, captions, manifest, render-resource report, and result are attached as the workflow artifact."
           } >> "$GITHUB_STEP_SUMMARY"
