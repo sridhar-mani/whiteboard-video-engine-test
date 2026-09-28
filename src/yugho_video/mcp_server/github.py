@@ -29,10 +29,17 @@ class GitHubClient:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.request(method, url, headers=self._headers(), **kwargs)
         if response.status_code >= 400:
-            raise GitHubAPIError(f"GitHub API {response.status_code}: {response.text[:2000]}")
+            raise GitHubAPIError(
+                f"GitHub API {response.status_code}: {response.text[:2000]}"
+            )
         return response
 
-    async def put_json_file(self, path: str, content: str, message: str) -> dict[str, Any]:
+    async def put_json_file(
+        self,
+        path: str,
+        content: str,
+        message: str,
+    ) -> dict[str, Any]:
         encoded = base64.b64encode(content.encode("utf-8")).decode("ascii")
         get_path = f"/repos/{self.settings.github_repo}/contents/{path}"
         existing_sha: str | None = None
@@ -58,10 +65,16 @@ class GitHubClient:
             if existing_sha:
                 payload["sha"] = existing_sha
 
-            response = await client.put(get_path, headers=self._headers(), json=payload)
+            response = await client.put(
+                get_path,
+                headers=self._headers(),
+                json=payload,
+            )
 
         if response.status_code >= 400:
-            raise GitHubAPIError(f"GitHub API {response.status_code}: {response.text[:2000]}")
+            raise GitHubAPIError(
+                f"GitHub API {response.status_code}: {response.text[:2000]}"
+            )
         return response.json()
 
     async def read_text_file(self, path: str) -> str:
@@ -74,7 +87,21 @@ class GitHubClient:
         encoded = payload.get("content", "")
         return base64.b64decode(encoded.replace("\n", "")).decode("utf-8")
 
-    async def dispatch_workflow(self, project_path: str, profile: str, publish: bool) -> None:
+    async def read_optional_text_file(self, path: str) -> str | None:
+        try:
+            return await self.read_text_file(path)
+        except GitHubAPIError as exc:
+            if "GitHub API 404" in str(exc):
+                return None
+            raise
+
+    async def dispatch_workflow(
+        self,
+        project_path: str,
+        profile: str,
+        publish: bool,
+        segment_id: str | None = None,
+    ) -> None:
         path = (
             f"/repos/{self.settings.github_repo}/actions/workflows/"
             f"{self.settings.github_workflow}/dispatches"
@@ -88,6 +115,7 @@ class GitHubClient:
                     "project_path": project_path,
                     "profile": profile,
                     "publish": "true" if publish else "false",
+                    "segment_id": segment_id or "",
                 },
             },
         )
