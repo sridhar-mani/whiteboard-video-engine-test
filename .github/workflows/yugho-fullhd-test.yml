@@ -1,0 +1,106 @@
+name: YUGHO Full HD Render Verification
+
+run-name: YUGHO | fullhd-render-test | preview
+
+on:
+  push:
+    paths:
+      - "projects/fullhd-render-test/project.json"
+      - ".github/workflows/yugho-fullhd-test.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fullhd-render:
+    name: Render and validate 1920x1080
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Install YUGHO platform
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,youtube,tts]"
+
+      - name: Run unit tests
+        run: python -m pytest -q
+
+      - name: Render Full HD project
+        run: |
+          set -euo pipefail
+          rm -rf out/fullhd
+          mkdir -p out/fullhd
+          /usr/bin/time -f "render_seconds=%e\nmax_rss_kb=%M" \
+            -o out/fullhd/render-resource-usage.txt \
+            python -m yugho_video.video_platform.render_project \
+            --project projects/fullhd-render-test/project.json \
+            --output-dir out/fullhd \
+            --profile preview
+          test -s out/fullhd/final.mp4
+
+      - name: Validate 1920x1080 output
+        run: |
+          set -euo pipefail
+          ffprobe -v error \
+            -select_streams v:0 \
+            -show_entries stream=codec_name,width,height,r_frame_rate \
+            -show_entries format=duration,size \
+            -of json \
+            out/fullhd/final.mp4 > out/fullhd/video-metadata.json
+
+          python - <<'PY'
+          import json
+          from fractions import Fraction
+          from pathlib import Path
+
+          meta = json.loads(Path("out/fullhd/video-metadata.json").read_text())
+          stream = meta["streams"][0]
+          fmt = meta["format"]
+
+          width = int(stream["width"])
+          height = int(stream["height"])
+          fps = float(Fraction(stream["r_frame_rate"]))
+          duration = float(fmt["duration"])
+          size = int(fmt["size"])
+
+          assert (width, height) == (1920, 1080), (width, height)
+          assert abs(fps - 24.0) < 0.1, fps
+          assert duration >= 3.0, duration
+          assert size > 0, size
+
+          print(
+              f"FULL_HD_PASS resolution={width}x{height} "
+              f"fps={fps:.2f} duration={duration:.2f}s bytes={size}"
+          )
+          PY
+
+      - name: Generate and validate thumbnail
+        run: |
+          ffmpeg -hide_banner -loglevel error -y \
+            -ss 1 -i out/fullhd/final.mp4 \
+            -frames:v 1 -q:v 2 out/fullhd/thumbnail.jpg
+          test -s out/fullhd/thumbnail.jpg
+
+      - name: Upload Full HD artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: yugho-fullhd-${{ github.run_id }}
+          path: out/fullhd/
+          if-no-files-found: error
+          retention-days: 3
