@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import subprocess
 from pathlib import Path
 from typing import Iterable
 
-from yugho_video.mcp_server.models import AudioSpec, SegmentSpec, SpeakerTurn
+from yugho_video.mcp_server.models import AudioSpec, SegmentSpec
 
 
 def _duration(path: Path) -> float:
@@ -109,6 +110,8 @@ def _synthesize_dialogue(
 
     clips: list[Path] = []
     pauses: list[float] = []
+    turns: list[dict[str, object]] = []
+    clock = 0.0
 
     for index, turn in enumerate(segment.dialogue, start=1):
         voice = turn.voice or audio.speaker_voices.get(turn.speaker) or audio.voice
@@ -118,28 +121,46 @@ def _synthesize_dialogue(
                 "Set turn.voice, audio.speaker_voices, or audio.voice."
             )
 
-        voice = _validate_setting("voice", voice)
-        rate = _validate_setting("rate", turn.rate)
-        pitch = _validate_setting("pitch", turn.pitch)
-        volume = _validate_setting("volume", turn.volume)
         path = clips_dir / f"{index:03d}-{turn.speaker}.mp3"
-
         _run(
             _edge_save(
                 turn.text,
                 path,
-                voice,
-                rate,
-                pitch,
-                volume,
+                _validate_setting("voice", voice),
+                _validate_setting("rate", turn.rate),
+                _validate_setting("pitch", turn.pitch),
+                _validate_setting("volume", turn.volume),
             )
         )
+
+        duration = _duration(path)
+        if duration <= 0:
+            raise RuntimeError(f"Dialogue turn produced invalid audio: {path}")
+
+        start = clock
+        end = start + duration
+        turns.append(
+            {
+                "speaker": turn.speaker,
+                "text": turn.text,
+                "start_sec": start,
+                "end_sec": end,
+                "voice": voice,
+            }
+        )
+        clock = end + turn.pause_after_sec
         clips.append(path)
         pauses.append(turn.pause_after_sec)
 
     output = output_dir / f"{segment.id}.dialogue.mp3"
     _concat_audio_clips(clips, pauses, output)
     duration = _duration(output)
+
+    (output_dir / f"{segment.id}.timing.json").write_text(
+        json.dumps({"turns": turns}, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
     if duration <= 0:
         raise RuntimeError(f"Dialogue produced an invalid duration: {output}")
 
@@ -160,14 +181,12 @@ def _concat_audio_clips(
 
     output.parent.mkdir(parents=True, exist_ok=True)
     list_file = output.with_suffix(".concat.txt")
-
     lines: list[str] = []
+
     for clip, pause in zip(clips, pauses, strict=True):
         escaped = clip.as_posix().replace("'", "'\\''")
         lines.append(f"file '{escaped}'\n")
         if pause > 0:
-            # A tiny generated silence clip keeps the concat operation
-            # deterministic and avoids expensive audio filter graphs.
             silence = output.parent / f".silence-{int(pause * 1000):04d}ms.wav"
             if not silence.exists():
                 subprocess.run(
@@ -199,11 +218,7 @@ def _concat_audio_clips(
     )
 
 
-def mux_narration(
-    video_path: Path,
-    audio_path: Path | None,
-    output_path: Path,
-) -> None:
+def mux_narration(video_path: Path, audio_path: Path | None, output_path: Path) -> None:
     if audio_path is None:
         if video_path != output_path:
             output_path.write_bytes(video_path.read_bytes())
