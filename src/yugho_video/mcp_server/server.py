@@ -76,7 +76,9 @@ async def validate_video_project(project: VideoProject) -> dict[str, object]:
         "project_id": project.project_id,
         "segments": len(project.segments),
         "renderers": sorted({segment.renderer for segment in project.segments}),
-        "duration_sec": sum(segment.duration_sec for segment in project.segments),
+        "duration_sec": sum(
+            segment.duration_sec for segment in project.segments
+        ),
         "publish_enabled": project.publish.enabled,
     }
 
@@ -86,11 +88,33 @@ async def start_video_render(
     project_id: str,
     profile: str = "preview",
     publish: bool = False,
+    segment_id: str | None = None,
 ) -> dict[str, object]:
-    """Dispatch a GitHub Actions render for the complete project."""
+    """Dispatch a GitHub Actions render for the complete project or one segment."""
     if profile not in {"smoke", "preview", "final"}:
         raise ValueError("profile must be smoke, preview, or final")
-    return await service.start_render(project_id, profile, publish)
+    if segment_id and publish:
+        raise ValueError("A segment preview cannot publish to YouTube.")
+    return await service.start_render(
+        project_id,
+        profile,
+        publish,
+        segment_id=segment_id,
+    )
+
+
+@mcp.tool()
+async def render_segment_preview(
+    project_id: str,
+    segment_id: str,
+) -> dict[str, object]:
+    """Render one segment as a standalone preview artifact."""
+    return await service.start_render(
+        project_id,
+        "preview",
+        False,
+        segment_id=segment_id,
+    )
 
 
 @mcp.tool()
@@ -100,7 +124,10 @@ async def get_video_status(project_id: str) -> dict[str, object]:
 
 
 @mcp.tool()
-async def publish_video(project_id: str, profile: str = "final") -> dict[str, object]:
+async def publish_video(
+    project_id: str,
+    profile: str = "final",
+) -> dict[str, object]:
     """Enable the project's YouTube publication and dispatch a final render/upload."""
     if profile not in {"preview", "final"}:
         raise ValueError("profile must be preview or final")
