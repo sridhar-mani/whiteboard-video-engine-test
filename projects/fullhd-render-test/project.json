@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.2",
+  "project_id": "fullhd-render-test",
+  "title": "YUGHO Full HD Render Test",
+  "topic": "Full HD renderer verification",
+  "description": "Automated 1920x1080 preview render validation.",
+  "tags": [
+    "YUGHO",
+    "render-test"
+  ],
+  "segments": [
+    {
+      "id": "apple",
+      "kind": "whiteboard_explanation",
+      "renderer": "whiteboard",
+      "duration_sec": 3,
+      "narration": "",
+      "dialogue": [],
+      "input_path": "tests/fixtures/apple.svg",
+      "config": {
+        "hand": "asian",
+        "animation_preset": "classic",
+        "line_reveal": "stroke",
+        "color_fill": "contour-wipe",
+        "stroke_detail": "rich"
+      }
+    }
+  ],
+  "audio": {
+    "provider": "none"
+  },
+  "publish": {
+    "enabled": false
+  }
+}
