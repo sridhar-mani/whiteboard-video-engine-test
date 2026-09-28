@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: yugho-video-mcp
+    runtime: python
+    plan: free
+    buildCommand: pip install -r mcp_server/requirements.txt
+    startCommand: python -m mcp_server.server
+    autoDeploy: true
+    buildFilter:
+      paths:
+        - mcp_server/**
+        - video_platform/models.py
+        - render.yaml
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.5
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GITHUB_REPO
+        value: sridhar-mani/whiteboard-video-engine-test
+      - key: GITHUB_WORKFLOW
+        value: yugho-video-engine.yml
+      - key: GITHUB_REF
+        value: main
