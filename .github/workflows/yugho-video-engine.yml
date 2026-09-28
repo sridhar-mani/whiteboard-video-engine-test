@@ -93,13 +93,16 @@ jobs:
 
           test -f "$PROJECT_PATH"
 
-          python - "$PROJECT_PATH" "$SEGMENT_ID" <<'PY'
+          python - "$PROJECT_PATH" "$SEGMENT_ID" "$PROFILE" <<'PY'
           import sys
           from pathlib import Path
           from yugho_video.mcp_server.models import VideoProject
+          from yugho_video.video_platform.render_project import get_render_profile
 
           path = Path(sys.argv[1])
           requested_segment = sys.argv[2].strip()
+          profile = sys.argv[3]
+          get_render_profile(profile)
           project = VideoProject.model_validate_json(
               path.read_text(encoding="utf-8")
           )
@@ -114,14 +117,16 @@ jobs:
           print(f"project_id={project.project_id}")
           print(f"segments={len(project.segments)}")
           print(f"title={project.title}")
+          print(f"profile={profile}")
           print(f"audio_provider={project.audio.provider}")
           PY
 
       - name: Render project or selected segment
         shell: bash
         env:
-          PROJECT_PATH: ${{ inputs.project_path }}
-          SEGMENT_ID: ${{ inputs.segment_id }}
+          PROJECT_PATH: ${{ inputs.project_path || 'projects/bootstrap/project.json' }}
+          SEGMENT_ID: ${{ inputs.segment_id || '' }}
+          PROFILE: ${{ inputs.profile || 'smoke' }}
         run: |
           set -euo pipefail
           rm -rf out/yugho
@@ -133,12 +138,14 @@ jobs:
             RENDER_ARGS=()
           fi
 
-          /usr/bin/time -f "render_seconds=%e\nmax_rss_kb=%M"             -o out/yugho/render-resource-usage.txt             python -m yugho_video.video_platform.render_project               --project "$PROJECT_PATH"               --output-dir out/yugho               "${RENDER_ARGS[@]}"
+          /usr/bin/time -f "render_seconds=%e\nmax_rss_kb=%M"             -o out/yugho/render-resource-usage.txt             python -m yugho_video.video_platform.render_project               --project "$PROJECT_PATH"               --output-dir out/yugho               --profile "$PROFILE"               "${RENDER_ARGS[@]}"
 
           test -s out/yugho/final.mp4
 
       - name: Validate final MP4
         shell: bash
+        env:
+          PROFILE: ${{ inputs.profile || 'smoke' }}
         run: |
           set -euo pipefail
 
@@ -146,7 +153,9 @@ jobs:
 
           python - <<'PY'
           import json
+          import os
           from fractions import Fraction
+          from yugho_video.video_platform.render_project import get_render_profile
           from pathlib import Path
 
           meta = json.loads(
@@ -161,8 +170,12 @@ jobs:
           duration = float(fmt["duration"])
           size = int(fmt["size"])
 
-          assert (width, height) == (1920, 1080), (width, height)
-          assert 23.9 <= fps <= 30.1, fps
+          expected = get_render_profile(os.environ["PROFILE"])
+          assert (width, height) == (
+              int(expected["width"]),
+              int(expected["height"]),
+          ), (width, height, expected)
+          assert abs(fps - int(expected["fps"])) < 0.1, (fps, expected)
           assert duration > 0 and size > 0
 
           print(
