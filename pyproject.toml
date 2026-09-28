@@ -1,40 +1,58 @@
 [project]
-name = "whiteboard-video-engine"
+name = "yugho-video-platform"
 version = "0.1.0"
-description = "Local-first hand-drawn whiteboard video engine with an optional Codex skill adapter"
+description = "Modular ChatGPT-driven video production platform with a whiteboard renderer, GitHub Actions execution, and YouTube publishing."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "httpx>=0.27,<1",
+  "mcp>=2.0,<3",
   "numpy>=1.26",
   "Pillow>=10.3",
-  "pydantic>=2.7",
+  "pydantic>=2.7,<3",
+  "PyJWT[crypto]>=2.9,<3",
 ]
 
 [project.optional-dependencies]
+youtube = [
+  "google-api-python-client>=2.160,<3",
+  "google-auth>=2.35,<3",
+]
+tts = [
+  "edge-tts>=6.1,<7",
+]
 lineart = [
   "torch>=2.0",
   "torchvision>=0.15",
   "tqdm>=4.66",
 ]
-full = [
-  "typer>=0.12",
-  "loguru>=0.7",
+ai = [
   "openai>=1.40",
-  "edge-tts>=6.1",
+]
+dev = [
+  "pytest>=8",
+  "ruff>=0.5",
+  "mypy>=1.10",
+]
+full = [
+  "google-api-python-client>=2.160,<3",
+  "google-auth>=2.35,<3",
+  "edge-tts>=6.1,<7",
+  "openai>=1.40",
   "torch>=2.0",
   "torchvision>=0.15",
   "tqdm>=4.66",
 ]
-dev = ["pytest>=8", "ruff>=0.5", "mypy>=1.10"]
 
 [project.scripts]
 whiteboard = "whiteboard_skill.cli:main"
+yugho-video-mcp = "yugho_video.mcp_server.server:main"
+yugho-render = "yugho_video.video_platform.render_project:main"
+yugho-youtube = "yugho_video.video_platform.youtube:main"
 
 [project.urls]
-Homepage = "https://github.com/gnipbao/whiteboard-video-engine"
-Repository = "https://github.com/gnipbao/whiteboard-video-engine"
-Issues = "https://github.com/gnipbao/whiteboard-video-engine/issues"
-CodexSkill = "https://github.com/gnipbao/codex-whiteboard-video-skill"
+Homepage = "https://github.com/sridhar-mani/whiteboard-video-engine-test"
+UpstreamRenderer = "https://github.com/gnipbao/whiteboard-video-engine"
 
 [build-system]
 requires = ["setuptools>=70", "wheel"]
@@ -47,4 +65,4 @@ where = ["src"]
 whiteboard_skill = ["prompts/*.txt", "assets/hands/*.png"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "src/yugho_video"]
