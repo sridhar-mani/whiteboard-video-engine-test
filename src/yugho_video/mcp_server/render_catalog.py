@@ -34,6 +34,7 @@ SEGMENT_KINDS = {
     "intro": "Branded introduction or premise setup.",
     "whiteboard_explanation": "Progressive hand-drawn explanation.",
     "animated_doodle": "Character-driven hand-drawn story beat.",
+    "dialogue": "Multi-speaker conversation or debate.",
     "diagram": "Hand-drawn or vector systems/flow diagram.",
     "data_explainer": "Charts, comparisons, statistics, and numerical explanation.",
     "story": "Narrative sequence built from one or more visual beats.",
