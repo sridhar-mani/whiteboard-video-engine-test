@@ -77,7 +77,10 @@ jobs:
 
       - name: Run unit tests
         shell: bash
-        run: python -m pytest -q
+        run: |
+          set -o pipefail
+          mkdir -p out/yugho
+          python -m pytest -q 2>&1 | tee out/yugho/pytest.log
 
       - name: Validate project
         shell: bash
