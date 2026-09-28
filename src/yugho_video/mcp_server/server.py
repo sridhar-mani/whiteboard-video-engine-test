@@ -55,30 +55,6 @@ if auth_pair is not None:
 mcp = MCPServer(settings.mcp_name, **server_kwargs)
 
 
-async def _health(_request):
-    return JSONResponse({"status": "ok", "service": settings.mcp_name})
-
-
-def build_http_app() -> Starlette:
-    return Starlette(
-        routes=[
-            Route("/health", endpoint=_health, methods=["GET"]),
-            Mount(
-                "/",
-                app=mcp.streamable_http_app(
-                    json_response=True,
-                    stateless_http=True,
-                    transport_security=_transport_security(),
-                    host="0.0.0.0",
-                ),
-            ),
-        ],
-    )
-
-
-app = build_http_app()
-
-
 @mcp.tool()
 async def get_video_system_context() -> dict[str, object]:
     """Return the complete machine-readable capability map for planning YUGHO videos."""
@@ -202,6 +178,31 @@ def _transport_security() -> TransportSecuritySettings | None:
         allowed_hosts=[hostname, f"{hostname}:*"],
         allowed_origins=[],
     )
+
+
+async def _health(_request):
+    return JSONResponse({"status": "ok", "service": settings.mcp_name})
+
+
+def build_http_app() -> Starlette:
+    return Starlette(
+        routes=[
+            Route("/health", endpoint=_health, methods=["GET"]),
+            Mount(
+                "/",
+                app=mcp.streamable_http_app(
+                    json_response=True,
+                    stateless_http=True,
+                    transport_security=_transport_security(),
+                    host="0.0.0.0",
+                ),
+            ),
+        ],
+    )
+
+
+app = build_http_app()
+
 
 
 def main() -> None:
