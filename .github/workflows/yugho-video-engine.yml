@@ -42,8 +42,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: yugho-video-project-${{ inputs.project_path }}
-  cancel-in-progress: false
+  group: yugho-video-${{ github.event_name }}-${{ inputs.project_path || 'projects/bootstrap/project.json' }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
   verify-render-publish:
@@ -84,6 +84,7 @@ jobs:
         env:
           PROJECT_PATH: ${{ inputs.project_path || 'projects/bootstrap/project.json' }}
           SEGMENT_ID: ${{ inputs.segment_id || '' }}
+          PROFILE: ${{ inputs.profile || 'smoke' }}
         run: |
           set -euo pipefail
           case "$PROJECT_PATH" in
