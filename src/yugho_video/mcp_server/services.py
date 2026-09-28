@@ -103,7 +103,11 @@ class VideoControlService:
         matches = [
             run
             for run in runs
-            if str(run.get("name", "")).startswith(prefix)
+            if str(
+                run.get("display_title")
+                or run.get("run_name")
+                or run.get("name", "")
+            ).startswith(prefix)
         ]
 
         result_payload: dict[str, Any] | None = None
