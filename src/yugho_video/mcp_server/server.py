@@ -168,7 +168,11 @@ async def publish_video(
 
 
 def _transport_security() -> TransportSecuritySettings | None:
-    public_url = os.getenv("MCP_PUBLIC_URL", "").strip()
+    public_url = (
+        os.getenv("MCP_PUBLIC_URL")
+        or os.getenv("RENDER_EXTERNAL_URL")
+        or ""
+    ).strip()
     if not public_url:
         return None
     hostname = urlparse(public_url).hostname
