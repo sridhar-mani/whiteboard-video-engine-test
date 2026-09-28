@@ -1,7 +1,6 @@
+import asyncio
 import json
 from pathlib import Path
-
-import pytest
 
 from yugho_video.mcp_server.services import VideoControlService
 
@@ -28,11 +27,10 @@ class FakeGitHub:
         raise AssertionError(path)
 
 
-@pytest.mark.asyncio
-async def test_status_matches_custom_workflow_run_name() -> None:
+def test_status_matches_custom_workflow_run_name() -> None:
     service = VideoControlService(FakeGitHub())
 
-    result = await service.status("demo-project")
+    result = asyncio.run(service.status("demo-project"))
 
     assert result["run_id"] == 42
     assert result["state"] == "in_progress"
