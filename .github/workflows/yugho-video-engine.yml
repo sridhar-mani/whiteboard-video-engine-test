@@ -3,6 +3,14 @@ name: YUGHO Video Engine
 run-name: YUGHO | ${{ inputs.project_path || 'bootstrap-manual' }} | ${{ inputs.profile || 'smoke' }}
 
 on:
+  push:
+    paths:
+      - ".github/workflows/yugho-video-engine.yml"
+      - "projects/**/project.json"
+      - "pyproject.toml"
+      - "render.yaml"
+      - "src/**"
+      - "tests/**"
   workflow_dispatch:
     inputs:
       project_path:
@@ -74,8 +82,8 @@ jobs:
       - name: Validate project
         shell: bash
         env:
-          PROJECT_PATH: ${{ inputs.project_path }}
-          SEGMENT_ID: ${{ inputs.segment_id }}
+          PROJECT_PATH: ${{ inputs.project_path || 'projects/bootstrap/project.json' }}
+          SEGMENT_ID: ${{ inputs.segment_id || '' }}
         run: |
           set -euo pipefail
           case "$PROJECT_PATH" in
@@ -170,7 +178,7 @@ jobs:
           test -s out/yugho/thumbnail.jpg
 
       - name: Publish to YouTube
-        if: ${{ inputs.publish == true && inputs.segment_id == '' }}
+        if: ${{ (inputs.publish || false) == true && (inputs.segment_id || '') == '' }}
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
@@ -186,10 +194,10 @@ jobs:
         if: always()
         shell: bash
         env:
-          PROJECT_PATH: ${{ inputs.project_path }}
-          SEGMENT_ID: ${{ inputs.segment_id }}
-          PROFILE: ${{ inputs.profile }}
-          REQUESTED_PUBLISH: ${{ inputs.publish }}
+          PROJECT_PATH: ${{ inputs.project_path || 'projects/bootstrap/project.json' }}
+          SEGMENT_ID: ${{ inputs.segment_id || '' }}
+          PROFILE: ${{ inputs.profile || 'smoke' }}
+          REQUESTED_PUBLISH: ${{ inputs.publish || false }}
           JOB_STATUS: ${{ job.status }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
@@ -274,10 +282,10 @@ jobs:
         if: always()
         shell: bash
         env:
-          PROJECT_PATH: ${{ inputs.project_path }}
-          PROFILE: ${{ inputs.profile }}
-          SEGMENT_ID: ${{ inputs.segment_id }}
-          PUBLISH: ${{ inputs.publish }}
+          PROJECT_PATH: ${{ inputs.project_path || 'projects/bootstrap/project.json' }}
+          PROFILE: ${{ inputs.profile || 'smoke' }}
+          SEGMENT_ID: ${{ inputs.segment_id || '' }}
+          PUBLISH: ${{ inputs.publish || false }}
         run: |
           {
             echo "## YUGHO Video Project"
