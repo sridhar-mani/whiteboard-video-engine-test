@@ -204,7 +204,7 @@ jobs:
           python -m yugho_video.video_platform.youtube             --project "$PROJECT_PATH"             --video out/yugho/final.mp4             --thumbnail out/yugho/thumbnail.jpg             --captions out/yugho/captions.srt             > out/yugho/youtube-result.json
           cat out/yugho/youtube-result.json
 
-      - name: Write durable project result
+      - name: Prepare project result
         if: always()
         shell: bash
         env:
@@ -271,9 +271,18 @@ jobs:
           )
           PY
 
+
+
+      - name: Persist project result for MCP status
+        if: ${{ github.event_name == 'workflow_dispatch' && always() }}
+        shell: bash
+        env:
+          PROJECT_PATH: ${{ inputs.project_path || 'projects/bootstrap/project.json' }}
+        run: |
+          set -euo pipefail
+
           PROJECT_ID="$(python -c 'import json; print(json.load(open("'"$PROJECT_PATH"'"))["project_id"])')"
           RESULT_PATH="projects/$PROJECT_ID/result.json"
-
           mkdir -p "$(dirname "$RESULT_PATH")"
           cp out/yugho/result.json "$RESULT_PATH"
 
@@ -282,7 +291,6 @@ jobs:
           git add "$RESULT_PATH"
           git diff --cached --quiet || git commit -m "video: record render result for $PROJECT_ID"
           git push
-
       - name: Upload workflow artifact
         if: always()
         uses: actions/upload-artifact@v4
