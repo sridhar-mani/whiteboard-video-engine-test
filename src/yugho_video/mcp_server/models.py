@@ -17,6 +17,14 @@ class SegmentSpec(BaseModel):
     config: dict[str, object] = Field(default_factory=dict)
 
 
+class AudioSpec(BaseModel):
+    provider: Literal["none", "edge"] = "none"
+    voice: str | None = None
+    background_music_path: str | None = None
+    background_music_volume: float = Field(default=0.12, ge=0.0, le=1.0)
+    fit_segments_to_narration: bool = True
+
+
 class PublishSpec(BaseModel):
     enabled: bool = False
     privacy_status: Literal["private", "unlisted", "public"] = "private"
@@ -28,13 +36,14 @@ class PublishSpec(BaseModel):
 class VideoProject(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    schema_version: str = "1.0"
+    schema_version: str = "1.1"
     project_id: str = Field(min_length=3, max_length=80, pattern=r"^[a-z0-9][a-z0-9._-]*$")
     title: str = Field(min_length=1, max_length=100)
     topic: str = Field(min_length=1, max_length=500)
     description: str = ""
     tags: list[str] = Field(default_factory=list, max_length=30)
     segments: list[SegmentSpec] = Field(min_length=1, max_length=120)
+    audio: AudioSpec = Field(default_factory=AudioSpec)
     publish: PublishSpec = Field(default_factory=PublishSpec)
 
     @field_validator("tags")
