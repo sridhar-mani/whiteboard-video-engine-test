@@ -1,84 +1,42 @@
 name: YUGHO Video Engine
 
+run-name: YUGHO | ${{ inputs.project_path || 'bootstrap-manual' }} | ${{ inputs.profile || 'smoke' }}
+
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/yugho-video-engine.yml"
-      - "pyproject.toml"
-      - "src/**"
-      - "tests/**"
-      - "examples/cases/sports-illustration-anime2sketch/**"
   workflow_dispatch:
     inputs:
-      profile:
-        description: Render profile used for the YUGHO pipeline
+      project_path:
+        description: Git repository path to a YUGHO project JSON file
         required: true
-        default: smoke
+        default: projects/bootstrap/project.json
+        type: string
+      profile:
+        description: Render profile
+        required: true
+        default: preview
         type: choice
         options:
           - smoke
           - preview
           - final
-      input:
-        description: SVG or raster line-art input to render
+      publish:
+        description: Upload the completed video to YouTube using repository secrets
         required: true
-        default: tests/fixtures/apple.svg
-        type: string
-      duration:
-        description: Render duration in seconds
-        required: true
-        default: "8"
-        type: string
-      fps:
-        description: Output frames per second
-        required: true
-        default: "24"
-        type: string
-      width:
-        description: Output width
-        required: true
-        default: "1920"
-        type: string
-      height:
-        description: Output height
-        required: true
-        default: "1080"
-        type: string
-      hand:
-        description: Hand cursor style
-        required: true
-        default: asian
-        type: choice
-        options:
-          - asian
-          - black
-          - children
-          - white
-          - procedural
-          - none
-      animation_preset:
-        description: Whiteboard animation preset
-        required: true
-        default: classic
-        type: choice
-        options:
-          - classic
-          - block-speedpaint
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
 concurrency:
-  group: yugho-video-engine-${{ github.ref }}
+  group: yugho-video-project-${{ inputs.project_path }}
   cancel-in-progress: false
 
 jobs:
-  verify-and-render:
-    name: Verify renderer and produce YUGHO test video
+  verify-render-publish:
+    name: Render YUGHO project and optionally publish
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 360
 
     steps:
       - name: Checkout repository
@@ -98,150 +56,62 @@ jobs:
           ffmpeg -version | head -n 1
           ffprobe -version | head -n 1
 
-      - name: Install project and development dependencies
+      - name: Install renderer, MCP schemas, and test dependencies
         shell: bash
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
+          python -m pip install -r mcp_server/requirements.txt
+
+      - name: Install YouTube dependencies when publishing
+        if: ${{ inputs.publish == true }}
+        shell: bash
+        run: python -m pip install -r video_platform/requirements.txt
 
       - name: Run unit tests
         shell: bash
-        run: |
-          python -m pytest -q
+        run: python -m pytest -q
 
-      - name: Validate renderer environment
-        shell: bash
-        run: |
-          whiteboard doctor
-          whiteboard list-styles --json > /tmp/yugho-styles.json
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          payload = json.loads(Path("/tmp/yugho-styles.json").read_text())
-          assert payload, "The renderer returned no visual styles"
-          print(f"Validated {len(payload)} built-in visual styles")
-          PY
-
-      - name: Resolve render parameters
-        id: params
+      - name: Validate project
         shell: bash
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          PROFILE: ${{ inputs.profile }}
-          INPUT_PATH: ${{ inputs.input }}
-          INPUT_DURATION: ${{ inputs.duration }}
-          INPUT_FPS: ${{ inputs.fps }}
-          INPUT_WIDTH: ${{ inputs.width }}
-          INPUT_HEIGHT: ${{ inputs.height }}
-          INPUT_HAND: ${{ inputs.hand }}
-          INPUT_PRESET: ${{ inputs.animation_preset }}
+          PROJECT_PATH: ${{ inputs.project_path }}
         run: |
           set -euo pipefail
-
-          if [ "$EVENT_NAME" = "push" ]; then
-            profile="smoke"
-            duration="8"
-            fps="24"
-            width="1920"
-            height="1080"
-            hand="asian"
-            preset="classic"
-            input="tests/fixtures/apple.svg"
-          else
-            profile="${PROFILE:-smoke}"
-            duration="${INPUT_DURATION:-8}"
-            fps="${INPUT_FPS:-24}"
-            width="${INPUT_WIDTH:-1920}"
-            height="${INPUT_HEIGHT:-1080}"
-            hand="${INPUT_HAND:-asian}"
-            preset="${INPUT_PRESET:-classic}"
-            input="${INPUT_PATH:-tests/fixtures/apple.svg}"
-          fi
-
-          case "$profile" in
-            smoke|preview|final) ;;
-            *) echo "Unsupported profile: $profile" >&2; exit 1 ;;
-          esac
-
-          case "$preset" in
-            classic|block-speedpaint) ;;
-            *) echo "Unsupported animation preset: $preset" >&2; exit 1 ;;
-          esac
-
-          test -f "$input"
-
-          python - "$duration" "$fps" "$width" "$height" <<'PY'
+          test -f "$PROJECT_PATH"
+          python - "$PROJECT_PATH" <<'PY'
           import sys
+          from pathlib import Path
+          from mcp_server.models import VideoProject
 
-          duration, fps, width, height = map(float, sys.argv[1:])
-          if duration <= 0:
-              raise SystemExit("duration must be > 0")
-          if fps <= 0 or fps > 60:
-              raise SystemExit("fps must be between 1 and 60")
-          if width < 2 or height < 2:
-              raise SystemExit("width and height must be >= 2")
-          if int(width) % 2 or int(height) % 2:
-              raise SystemExit("width and height must be even for H.264")
+          path = Path(sys.argv[1])
+          project = VideoProject.model_validate_json(
+              path.read_text(encoding="utf-8")
+          )
+          print(f"project_id={project.project_id}")
+          print(f"segments={len(project.segments)}")
+          print(f"title={project.title}")
           PY
 
-          {
-            echo "profile=$profile"
-            echo "input=$input"
-            echo "duration=$duration"
-            echo "fps=$fps"
-            echo "width=$width"
-            echo "height=$height"
-            echo "hand=$hand"
-            echo "preset=$preset"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Prepare output directory
-        shell: bash
-        run: |
-          rm -rf out/ci
-          mkdir -p out/ci
-          git status --short
-
-      - name: Render YUGHO whiteboard video
+      - name: Render project segments and compose master
         shell: bash
         env:
-          INPUT: ${{ steps.params.outputs.input }}
-          DURATION: ${{ steps.params.outputs.duration }}
-          FPS: ${{ steps.params.outputs.fps }}
-          WIDTH: ${{ steps.params.outputs.width }}
-          HEIGHT: ${{ steps.params.outputs.height }}
-          HAND: ${{ steps.params.outputs.hand }}
-          PRESET: ${{ steps.params.outputs.preset }}
+          PROJECT_PATH: ${{ inputs.project_path }}
         run: |
           set -euo pipefail
+          rm -rf out/yugho
+          mkdir -p out/yugho
 
           /usr/bin/time -f "render_seconds=%e\nmax_rss_kb=%M" \
-            -o out/ci/render-resource-usage.txt \
-            whiteboard render-image "$INPUT" \
-              --output out/ci/yugho-test.mp4 \
-              --duration "$DURATION" \
-              --fps "$FPS" \
-              --width "$WIDTH" \
-              --height "$HEIGHT" \
-              --hand "$HAND" \
-              --animation-preset "$PRESET" \
-              --stroke-detail rich \
-              --line-reveal stroke \
-              --tail-color 1.5 \
-              --color-fill contour-wipe \
-              --block-fill-style crayon \
-              --color-fill-scope block \
-              --line-thickness 0
+            -o out/yugho/render-resource-usage.txt \
+            python -m video_platform.render_project \
+              --project "$PROJECT_PATH" \
+              --output-dir out/yugho
 
-          test -s out/ci/yugho-test.mp4
+          test -s out/yugho/final.mp4
 
       - name: Validate final MP4
         shell: bash
-        env:
-          EXPECTED_WIDTH: ${{ steps.params.outputs.width }}
-          EXPECTED_HEIGHT: ${{ steps.params.outputs.height }}
-          EXPECTED_FPS: ${{ steps.params.outputs.fps }}
         run: |
           set -euo pipefail
 
@@ -250,17 +120,18 @@ jobs:
             -show_entries stream=codec_name,width,height,r_frame_rate \
             -show_entries format=duration,size \
             -of json \
-            out/ci/yugho-test.mp4 > out/ci/video-metadata.json
+            out/yugho/final.mp4 > out/yugho/video-metadata.json
 
           python - <<'PY'
           import json
           from fractions import Fraction
           from pathlib import Path
-          import os
 
-          metadata = json.loads(Path("out/ci/video-metadata.json").read_text())
-          stream = metadata["streams"][0]
-          fmt = metadata["format"]
+          meta = json.loads(
+              Path("out/yugho/video-metadata.json").read_text()
+          )
+          stream = meta["streams"][0]
+          fmt = meta["format"]
 
           width = int(stream["width"])
           height = int(stream["height"])
@@ -268,21 +139,14 @@ jobs:
           duration = float(fmt["duration"])
           size = int(fmt["size"])
 
-          expected_width = int(os.environ["EXPECTED_WIDTH"])
-          expected_height = int(os.environ["EXPECTED_HEIGHT"])
-          expected_fps = int(os.environ["EXPECTED_FPS"])
+          assert (width, height) == (1920, 1080), (width, height)
+          assert 23.9 <= fps <= 30.1, fps
+          assert duration > 0 and size > 0
 
-          assert width == expected_width, (width, expected_width)
-          assert height == expected_height, (height, expected_height)
-          assert abs(fps - expected_fps) < 0.01, (fps, expected_fps)
-          assert duration > 0, duration
-          assert size > 0, size
-
-          print(f"codec={stream['codec_name']}")
-          print(f"resolution={width}x{height}")
-          print(f"fps={fps:.2f}")
-          print(f"duration={duration:.2f}s")
-          print(f"bytes={size}")
+          print(
+              f"resolution={width}x{height} "
+              f"fps={fps:.2f} duration={duration:.2f}s bytes={size}"
+          )
           PY
 
       - name: Generate thumbnail
@@ -290,93 +154,55 @@ jobs:
         run: |
           ffmpeg -hide_banner -loglevel error -y \
             -ss 1 \
-            -i out/ci/yugho-test.mp4 \
+            -i out/yugho/final.mp4 \
             -frames:v 1 \
             -q:v 2 \
-            out/ci/yugho-thumbnail.jpg
+            out/yugho/thumbnail.jpg
 
-          test -s out/ci/yugho-thumbnail.jpg
-
-      - name: Write render manifest
-        shell: bash
+      - name: Publish to YouTube
+        if: ${{ inputs.publish == true }}
         env:
-          PROFILE: ${{ steps.params.outputs.profile }}
-          INPUT: ${{ steps.params.outputs.input }}
-          DURATION: ${{ steps.params.outputs.duration }}
-          FPS: ${{ steps.params.outputs.fps }}
-          WIDTH: ${{ steps.params.outputs.width }}
-          HEIGHT: ${{ steps.params.outputs.height }}
-          HAND: ${{ steps.params.outputs.hand }}
-          PRESET: ${{ steps.params.outputs.preset }}
-          RUN_ID: ${{ github.run_id }}
-          SHA: ${{ github.sha }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          PROJECT_PATH: ${{ inputs.project_path }}
+        shell: bash
         run: |
-          python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
+          set -euo pipefail
 
-          manifest = {
-              "pipeline": "yugho-video-engine",
-              "purpose": "CI smoke/preview/final whiteboard render",
-              "profile": os.environ["PROFILE"],
-              "input": os.environ["INPUT"],
-              "duration_sec": float(os.environ["DURATION"]),
-              "fps": int(os.environ["FPS"]),
-              "resolution": {
-                  "width": int(os.environ["WIDTH"]),
-                  "height": int(os.environ["HEIGHT"]),
-              },
-              "hand": os.environ["HAND"],
-              "animation_preset": os.environ["PRESET"],
-              "git_sha": os.environ["SHA"],
-              "github_run_id": os.environ["RUN_ID"],
-              "youtube_publish": False,
-              "notes": [
-                  "This first workflow validates the renderer and GitHub Actions runtime.",
-                  "YouTube publishing is intentionally not enabled in this bootstrap workflow.",
-                  "Model-backed line-art extraction is intentionally avoided for the free CI smoke test.",
-              ],
-          }
+          test -f out/yugho/captions.srt || true
 
-          Path("out/ci/render-manifest.json").write_text(
-              json.dumps(manifest, indent=2) + "\n",
-              encoding="utf-8",
-          )
-          PY
+          python -m video_platform.youtube \
+            --project "$PROJECT_PATH" \
+            --video out/yugho/final.mp4 \
+            --thumbnail out/yugho/thumbnail.jpg \
+            --captions out/yugho/captions.srt \
+            | tee out/yugho/youtube-result.txt
 
-      - name: Upload render artifact
+      - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: yugho-video-engine-run-${{ github.run_id }}
-          path: out/ci/
+          name: yugho-project-${{ github.run_id }}
+          path: out/yugho/
           if-no-files-found: error
           retention-days: 3
 
-      - name: Publish job summary
+      - name: Job summary
         shell: bash
         env:
-          PROFILE: ${{ steps.params.outputs.profile }}
-          INPUT: ${{ steps.params.outputs.input }}
-          DURATION: ${{ steps.params.outputs.duration }}
-          FPS: ${{ steps.params.outputs.fps }}
-          WIDTH: ${{ steps.params.outputs.width }}
-          HEIGHT: ${{ steps.params.outputs.height }}
-          HAND: ${{ steps.params.outputs.hand }}
-          PRESET: ${{ steps.params.outputs.preset }}
+          PROJECT_PATH: ${{ inputs.project_path }}
+          PROFILE: ${{ inputs.profile }}
+          PUBLISH: ${{ inputs.publish }}
         run: |
           {
-            echo "## YUGHO Video Engine"
+            echo "## YUGHO Video Project"
             echo ""
             echo "| Parameter | Value |"
             echo "|---|---|"
+            echo "| Project | \`$PROJECT_PATH\` |"
             echo "| Profile | $PROFILE |"
-            echo "| Input | `$INPUT` |"
-            echo "| Duration | $DURATION s |"
-            echo "| FPS | $FPS |"
-            echo "| Resolution | $WIDTH x $HEIGHT |"
-            echo "| Hand | $HAND |"
-            echo "| Animation preset | $PRESET |"
+            echo "| Publish | $PUBLISH |"
+            echo "| Output | final.mp4 |"
             echo ""
-            echo "The MP4, thumbnail, metadata, manifest, and render resource report are attached as the workflow artifact."
+            echo "The render, thumbnail, captions, metadata, and resource report are attached as the workflow artifact."
           } >> "$GITHUB_STEP_SUMMARY"
