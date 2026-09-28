@@ -1,45 +1,56 @@
 # YUGHO Video Architecture
 
-The repository has three layers.
+## Runtime boundaries
 
-## 1. Upstream renderer package
+1. Upstream renderer: src/whiteboard_skill/ is the forked renderer package.
+2. YUGHO engine adapters: src/yugho_video/engines/ provides stable renderer interfaces.
+3. Production runtime: src/yugho_video/video_platform/ renders segments, audio, captions, composition and publishing.
+4. MCP control plane: src/yugho_video/mcp_server/ exposes ChatGPT-facing tools.
+5. Execution backend: .github/workflows/yugho-video-engine.yml runs production jobs on GitHub Actions.
+6. Publishing: YouTube Data API runs inside the same ephemeral GitHub Actions job.
 
-`src/whiteboard_skill/` is the forked whiteboard engine. It remains intact so upstream updates can be incorporated without coupling the rest of the platform to its internal files.
+## Segment architecture
 
-## 2. YUGHO renderer adapters
+ChatGPT chooses semantic segment types and renderer backends. The entire project is rendered in one Actions job, while individual segments can be rendered independently for preview iteration.
 
-`src/yugho_video/engines/` contains stable adapters for individual rendering engines.
+Example:
 
-The whiteboard adapter calls the upstream Python renderer directly. Future adapters can target Motion Canvas, Manim, HandAnim, or other engines without changing the project schema or MCP tools.
+hook -> whiteboard
+problem -> whiteboard
+data_explainer -> future motion-canvas
+math -> future manim
+character -> whiteboard
+cta -> future motion-canvas
 
-## 3. Control and production layers
+Adding a renderer means implementing one adapter and registering it. The MCP contract does not change.
 
-- `src/yugho_video/mcp_server/` exposes stable ChatGPT-facing MCP tools.
-- `src/yugho_video/video_platform/` validates projects, renders segments, composes the master video, generates captions, and publishes to YouTube.
-- `.github/workflows/yugho-video-engine.yml` provides the current execution backend.
+## Intended ChatGPT flow
 
-Render hosts only the lightweight MCP control plane. GitHub Actions performs the CPU-heavy work.
+Create a video about X
+  -> research/script/story plan handled by ChatGPT
+  -> create_video_project
+  -> start_video_render or publish_video
+  -> GitHub Actions
+  -> get_video_status
+  -> final YouTube result
 
-The project schema deliberately chooses a renderer per segment:
+## Authentication
 
-```text
-hook            -> motion-canvas
-whiteboard      -> whiteboard
-data_explainer  -> motion-canvas
-character       -> whiteboard
-math            -> manim
-cta             -> motion-canvas
-```
+The MCP is an OAuth 2.1 resource server. It validates access tokens from an external OAuth/OIDC authorization server using JWKS.
 
-This makes the rendering backend replaceable without changing the ChatGPT tool interface.
+Required runtime variables:
 
-## Current state
+MCP_PUBLIC_URL
+MCP_AUTH_ISSUER
+MCP_AUTH_AUDIENCE
+MCP_AUTH_JWKS_URL
+MCP_AUTH_REQUIRED_SCOPES
 
-Only the whiteboard adapter is implemented initially. Adding another engine means:
+The repository does not own user passwords or implement an end-user login page.
 
-1. implement a renderer adapter;
-2. register it in `video_platform/renderers.py`;
-3. add focused tests;
-4. add any engine-specific dependencies to the GitHub workflow.
+## Secrets
 
-YouTube credentials are never stored in the repository.
+GitHub token lives in the Render environment.
+YouTube OAuth credentials live only in GitHub Actions repository secrets.
+OAuth provider client configuration is handled by the provider/ChatGPT app configuration.
+No secret belongs in git.

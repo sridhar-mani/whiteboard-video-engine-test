@@ -3,8 +3,8 @@ services:
     name: yugho-video-mcp
     runtime: python
     plan: free
-    buildCommand: pip install -e . && pip install -r src/yugho_video/mcp_server/requirements.txt
-    startCommand: python -m yugho_video.mcp_server.server
+    buildCommand: pip install -e '.[dev]'
+    startCommand: yugho-video-mcp
     autoDeploy: true
     buildFilter:
       paths:
@@ -23,3 +23,13 @@ services:
         value: yugho-video-engine.yml
       - key: GITHUB_REF
         value: main
+      - key: MCP_PUBLIC_URL
+        sync: false
+      - key: MCP_AUTH_ISSUER
+        sync: false
+      - key: MCP_AUTH_AUDIENCE
+        sync: false
+      - key: MCP_AUTH_JWKS_URL
+        sync: false
+      - key: MCP_AUTH_REQUIRED_SCOPES
+        value: mcp:write
